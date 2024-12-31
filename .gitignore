@@ -1,0 +1,11 @@
+.project
+.classpath
+.idea
+*.iml
+_config.yml
+/.idea/
+/docs/source/
+/docs/make.bat
+/docs/Makefile
+/cmake-build-debug
+SimConnect.dll
