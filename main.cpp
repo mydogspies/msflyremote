@@ -17,8 +17,7 @@ using namespace std;
 // MSFS 2020 setup
 HANDLE  hSimConnect = NULL;
 
-// ARDUINO setup
-// Mutex for synchronizing the serial communication
+// Threading setup
 std::mutex mtx;
 // Global serial port handle
 HANDLE hSerial;
@@ -52,54 +51,20 @@ void testSimConnect() {
 // Function to receive data from Arduino
 void receiveData() {
 
-    // VERSION 1 - receive buffer
-
-    /*
-    cout<<"Receiving data from Arduino"<<endl;
-
-    try {
-        char data[6];  // Buffer to hold incoming data
-        DWORD bytesRead;
-
-        while (true) {
-            if (ReadFile(hSerial, data, sizeof(data) - 1, &bytesRead, NULL)) {
-                if (bytesRead > 0) {
-                    data[bytesRead] = '\0';  // Null-terminate the received data
-
-                    // Lock mutex to safely print from the main thread
-                    mtx.lock();
-                    cout << "Received: " << data << endl;
-                    mtx.unlock();
-                }
-            } else {
-                cerr << "Error reading from serial port." << endl;
-            }
-        }
-    } catch (...) {
-        cerr << "Error reading from serial port. Error code: " << GetLastError() << endl;
-    }
-    */
-
-    // VERSION 2 - receive stream
-
     cout << "Receiving data from Arduino" << endl;
 
     try {
-        vector<char> byteStream;  // Vector to store incoming byte stream
+        vector<char> byteStream;
         DWORD bytesRead;
-        char byte;  // Temporary variable to hold each byte
+        char byte;
 
         while (true) {
-            // Read data byte-by-byte from the serial port
             if (ReadFile(hSerial, &byte, sizeof(byte), &bytesRead, NULL)) {
                 if (bytesRead > 0) {
-                    byteStream.push_back(byte);  // Add byte to the byte stream
+                    byteStream.push_back(byte);
 
-                    // Optional: Check for a delimiter or end of data (e.g., newline)
                     if (byte == '\n') {  // Assuming data ends with newline
-                        // Convert the byte stream to a string
                         std::string receivedData(byteStream.begin(), byteStream.end()-1);
-                        // Lock mutex to safely print from the main thread
                         mtx.lock();
                         cout << "Received: " << receivedData << endl;
                         mtx.unlock();
@@ -121,7 +86,6 @@ void receiveData() {
 // Function to send data to Arduino
 void sendData(const string& message) {
     try {
-        // Lock mutex before sending data
         mtx.lock();
         DWORD bytesWritten;
         if (!WriteFile(hSerial, message.c_str(), message.length(), &bytesWritten, NULL)) {
@@ -147,7 +111,6 @@ int main() {
     testSimConnect();
 
     try {
-        // Open the serial port (replace "COM3" with the correct port on your system)
         hSerial = CreateFile("COM8", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 
         if (hSerial == INVALID_HANDLE_VALUE) {
@@ -158,19 +121,16 @@ int main() {
         DCB dcbSerialParams = { 0 };
         dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
 
-        // Get the current serial port parameters
         if (!GetCommState(hSerial, &dcbSerialParams)) {
             cerr << "Error getting serial port state!" << endl;
             return 1;
         }
 
-        // Set the baud rate, parity, etc.
         dcbSerialParams.BaudRate = CBR_115200;
         dcbSerialParams.ByteSize = 8;
         dcbSerialParams.StopBits = ONESTOPBIT;
         dcbSerialParams.Parity = NOPARITY;
 
-        // Set the updated parameters
         if (!SetCommState(hSerial, &dcbSerialParams)) {
             cerr << "Error setting serial port state!" << endl;
             return 1;
@@ -191,7 +151,7 @@ int main() {
         }
         */
 
-        receiverThread.join();  // Ensure the receiver thread finishes before exiting
+        receiverThread.join();
 
         // Close the serial port when done
         CloseHandle(hSerial);
