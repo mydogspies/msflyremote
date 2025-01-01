@@ -6,22 +6,76 @@
 
 #include <windows.h>
 #include <iostream>
+#include <ranges>
 #include <vector>
-using namespace std;
 #include <string>
+#include <thread>
+#include <fstream>
+#include <math.h>
+#include <mutex>  // Include for mutex
+
+using namespace std;
 #include<stdlib.h>
 #include "SimConnect.h"
-#include <thread>
-#include <mutex>
 
 // MSFS 2020 setup
 HANDLE  hSimConnect = NULL;
-
 // Threading setup
 std::mutex mtx;
-// Global serial port handle
 HANDLE hSerial;
 
+//
+// LOGGER
+//
+
+enum LogLevel {
+    LOG_INFO,
+    LOG_WARNING,
+    LOG_ERROR
+};
+
+enum LogOutput {
+    LOG_TO_TERMINAL,
+    LOG_TO_FILE
+};
+
+// Logging function
+// with option to log to terminal or to file
+void logMessage(LogOutput outputType, LogLevel level, const std::string& message, const std::string& filename = "") {
+    std::ostream* outputStream = nullptr;
+
+    // Determine the output stream based on the output type
+    if (outputType == LOG_TO_FILE) {
+        std::ofstream logFile(filename, std::ios::out | std::ios::app);
+        if (!logFile.is_open()) {
+            std::cerr << "Failed to open log file: " << filename << std::endl;
+            return;
+        }
+        outputStream = &logFile;
+        logFile.close();
+    } else {
+        outputStream = &std::cout;
+    }
+
+    // Log the message to the selected output stream
+    if (outputStream) {
+        switch (level) {
+            case LOG_INFO:
+                (*outputStream) << "LOG_INFO: ";
+            break;
+            case LOG_WARNING:
+                (*outputStream) << "LOG_WARNING: ";
+            break;
+            case LOG_ERROR:
+                (*outputStream) << "ERROR: ";
+            break;
+            default:
+                (*outputStream) << "UNKNOWN: ";
+            break;
+        }
+        (*outputStream) << message << std::endl;
+    }
+}
 
 //
 // MSFS 2020 functions
@@ -105,9 +159,24 @@ int testArduinoConnect() {
 
 } // END testArduincConnect
 
+void testLogging() {
+
+    // Log to terminal
+    logMessage(LOG_TO_TERMINAL, LOG_INFO, "This is an informational message to the terminal.");
+    logMessage(LOG_TO_TERMINAL, LOG_WARNING, "This is a warning message to the terminal.");
+    logMessage(LOG_TO_TERMINAL, LOG_ERROR, "This is an error message to the terminal.");
+
+    // Log to file
+    logMessage(LOG_TO_FILE, LOG_INFO, "This is an informational message to the file.", "log.txt");
+    logMessage(LOG_TO_FILE, LOG_WARNING, "This is a warning message to the file.", "log.txt");
+    logMessage(LOG_TO_FILE, LOG_ERROR, "This is an error message to the file.", "log.txt");
+
+} // END testLogging
+
 // MAIN
 int main() {
 
+    testLogging();
     testSimConnect();
 
     try {
