@@ -14,12 +14,11 @@
 #include <cmath>
 #include <mutex>
 #include <array>
-#include <sstream>
 
 using namespace std;
 #include "SimConnect.h"
 
-HANDLE  hSimConnect = nullptr;
+HANDLE hSimConnect = nullptr;
 HANDLE hSerial = nullptr;
 
 std::mutex mtx;
@@ -29,21 +28,25 @@ std::mutex mtx;
 //
 
 
-
 enum LogLevel {
+    LOG_DEBUG,
     LOG_INFO,
     LOG_WARNING,
     LOG_ERROR,
     LOG_LEVELS
 };
 
-constexpr std::array<const char*, LOG_LEVELS> levelStrings = {{
-    "LOG_INFO",
-    "LOG_WARNING",
-    "LOG_ERROR"
-    }};
-const char* levelToString(LogLevel level) {
-    if (level >= 0 && level < LOG_LEVELS) {
+constexpr std::array<const char *, LOG_LEVELS> levelStrings = {
+    {
+        "LOG_DEBUG",
+        "LOG_INFO",
+        "LOG_WARNING",
+        "LOG_ERROR"
+    }
+};
+
+const char *levelToString(const LogLevel level) {
+    if (level < LOG_LEVELS > 0) {
         return levelStrings[level];
     }
     return "Unknown";
@@ -55,40 +58,34 @@ enum LogOutput {
 };
 
 // this sets globally if logging writes to terminal or file
-LogOutput logOutputTypeSet = LOG_TO_TERMINAL;
+LogOutput logOutputTypeSet = LOG_TO_FILE;
+LogLevel logLevelSet = LOG_DEBUG;
 
 //
 // FUNCTIONS
 //
 
-std::string captureCerrBuffer(std::streambuf* originalCerrBuffer) {
-
-    std::ostringstream cerrStream;
-    std::cerr.rdbuf(cerrStream.rdbuf());
-    // std::cerr << "This is an error message!" << std::endl;
-    std::cerr.rdbuf(originalCerrBuffer);
-    return cerrStream.str();
-}
-
 // get current time
 //
-char* getTime() {
-    time_t rawtime = time(0);
-    struct tm * timeinfo = localtime(&rawtime);
-    char* date_time = asctime(timeinfo);
+char *getTime() {
+    time_t rawtime = time(nullptr);
+    struct tm *timeinfo = localtime(&rawtime);
+    char *date_time = asctime(timeinfo);
     return date_time;
 } // END getTime
 
 // Logging function
 // with option to log to terminal or to file
 //
-void logMessage(LogOutput outputType, LogLevel level, const std::string& message, const std::string& filename = "") {
-    std::ostream* outputStream = nullptr;
+void logMessage(LogOutput outputType, LogLevel level, const std::string &message,
+                const std::string &filename = "log.txt") {
+    std::ostream *outputStream = nullptr;
     std::string msg;
 
     // Determine the output stream based on the output type
-    if (outputType == LOG_TO_FILE) {
+    if (outputType == LOG_TO_FILE && logLevelSet <= level) {
         std::ofstream logFile(filename, std::ios::out | std::ios::app);
+
         if (!logFile.is_open() || !logFile.good()) {
             std::cerr << "Failed to open log file: " << filename << std::endl;
             return;
@@ -96,23 +93,27 @@ void logMessage(LogOutput outputType, LogLevel level, const std::string& message
         outputStream = &logFile;
 
         switch (level) {
+            case LOG_DEBUG:
+                (*outputStream) << getTime() << " | DEBUG: ";
+                break;
             case LOG_INFO:
                 (*outputStream) << getTime() << " | INFO: ";
-            break;
+                break;
             case LOG_WARNING:
                 (*outputStream) << getTime() << " | WARNING: ";
-            break;
+                break;
             case LOG_ERROR:
                 (*outputStream) << getTime() << " | ERROR: ";
-            break;
+                break;
             default:
                 (*outputStream) << getTime() << " | UNKNOWN: ";
+                break;
         }
         (*outputStream) << message << std::endl;
-
     } else {
-
-        cout << getTime() << levelToString(level) << ": " << message << endl;
+        if (logLevelSet <= level) {
+            cout << getTime() << levelToString(level) << ": " << message << endl;
+        }
     }
 } // END logMessage
 
@@ -123,18 +124,13 @@ void logMessage(LogOutput outputType, LogLevel level, const std::string& message
 // Test connection to msfs2020
 //
 void testSimConnect() {
-
-    HRESULT hr;
-
-    if (SUCCEEDED(SimConnect_Open(&hSimConnect, "Open and Close", nullptr, 0, 0, 0))) {
-
+    if (SUCCEEDED(SimConnect_Open(&hSimConnect, "Open and Close", nullptr, 0, nullptr, 0))) {
         logMessage(logOutputTypeSet, LOG_INFO, "testSimConnect(): Connected to MSFS 2020.");
-        hr = SimConnect_Close(hSimConnect);
-        printf("\nDisconnected from Flight Simulator\n");
-
+        HRESULT hr = SimConnect_Close(hSimConnect);
+        logMessage(logOutputTypeSet, LOG_WARNING, "testSimConnect(): Disconnected to MSFS 2020!");
     } else
         logMessage(logOutputTypeSet, LOG_ERROR, "testSimConnect(): Failed to connect to MSFS 2020");
-} // END testSimConnnect
+} // END testSimConnect
 
 
 //
@@ -143,7 +139,6 @@ void testSimConnect() {
 
 // Function to receive data from Arduino
 void receiveData() {
-
     logMessage(logOutputTypeSet, LOG_INFO, "receiveData(): Listening to Arduino.");
 
     try {
@@ -151,13 +146,14 @@ void receiveData() {
         DWORD bytesRead;
         char byte;
 
-        while (true) {
-            if (ReadFile(hSerial, &byte, sizeof(byte), &bytesRead, NULL)) {
+        while (true) { // REFACTOR
+            if (ReadFile(hSerial, &byte, sizeof(byte), &bytesRead, nullptr)) {
                 if (bytesRead > 0) {
                     byteStream.push_back(byte);
 
-                    if (byte == '\n') {  // Assuming data ends with newline
-                        std::string receivedData(byteStream.begin(), byteStream.end()-1);
+                    if (byte == '\n') {
+                        // Assuming data ends with newline
+                        std::string receivedData(byteStream.begin(), byteStream.end() - 1);
                         mtx.lock();
                         cout << "Received: " << receivedData << endl;
                         mtx.unlock();
@@ -168,21 +164,17 @@ void receiveData() {
                 logMessage(logOutputTypeSet, LOG_ERROR, "receiveData(): Error reading from open serial port.");
             }
         }
-
     } catch (...) {
-
         logMessage(logOutputTypeSet, LOG_ERROR, "receiveData(): Error while trying to read serial port.");
     }
-
-
 }
 
 // Function to send data to Arduino
-void sendData(const string& message) {
+void sendData(const string &message) {
     try {
         mtx.lock();
         DWORD bytesWritten;
-        if (!WriteFile(hSerial, message.c_str(), message.length(), &bytesWritten, NULL)) {
+        if (!WriteFile(hSerial, message.c_str(), message.length(), &bytesWritten, nullptr)) {
             logMessage(logOutputTypeSet, LOG_ERROR, "sendData(): Error writing data to open port.");
         }
         mtx.unlock();
@@ -191,28 +183,20 @@ void sendData(const string& message) {
     }
 }
 
-// Test connection to Arduino
-//
-int testArduinoConnect() {
-
-    return 0;
-
-} // END testArduincConnect
-
 // MAIN
 int main() {
 
     testSimConnect();
 
     try {
-        hSerial = CreateFile("COM8", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        hSerial = CreateFile("COM8", GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
 
         if (hSerial == INVALID_HANDLE_VALUE) {
             logMessage(logOutputTypeSet, LOG_ERROR, "main(): Error opening serial port!");
             return 0;
         }
 
-        DCB dcbSerialParams = { 0 };
+        DCB dcbSerialParams = {0};
         dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
 
         if (!GetCommState(hSerial, &dcbSerialParams)) {
@@ -249,12 +233,10 @@ int main() {
 
         // Close the serial port when done
         CloseHandle(hSerial);
-
     } catch (const exception &e) {
         logMessage(logOutputTypeSet, LOG_ERROR, "main(): Exception thrown: ");
         cerr << "Exception: " << e.what() << endl;
     }
 
     return 0;
-
 } //END main
