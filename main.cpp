@@ -17,53 +17,39 @@
 
 using namespace std;
 #include "SimConnect.h"
+#include "Config.h"
 
 HANDLE hSimConnect = nullptr;
 HANDLE hSerial = nullptr;
 
 std::mutex mtx;
+Config globalConfig;
+LogLevel logLevelSet;
+LogOutput logOutputTypeSet;
 
 //
 // LOGGER DEFINITIONS
 //
 
-
-enum LogLevel {
-    LOG_DEBUG,
-    LOG_INFO,
-    LOG_WARNING,
-    LOG_ERROR,
-    LOG_LEVELS
-};
-
-constexpr std::array<const char *, LOG_LEVELS> levelStrings = {
-    {
-        "LOG_DEBUG",
-        "LOG_INFO",
-        "LOG_WARNING",
-        "LOG_ERROR"
-    }
-};
-
-const char *levelToString(const LogLevel level) {
-    if (level < LOG_LEVELS > 0) {
-        return levelStrings[level];
-    }
-    return "Unknown";
-}
-
-enum LogOutput {
-    LOG_TO_TERMINAL,
-    LOG_TO_FILE
-};
-
-// this sets globally if logging writes to terminal or file
-LogOutput logOutputTypeSet = LOG_TO_FILE;
-LogLevel logLevelSet = LOG_DEBUG;
-
 //
 // FUNCTIONS
 //
+
+// constexpr std::array<const char *, LogLevel::LOG_LEVELS> levelStrings = {
+//     {
+//         "LOG_DEBUG",
+//         "LOG_INFO",
+//         "LOG_WARNING",
+//         "LOG_ERROR"
+//     }
+// };
+
+// const char *levelToString(const LogLevel level) {
+//     if (level < LogLevel::LOG_LEVELS > 0) {
+//         return levelStrings[level];
+//     }
+//     return "Unknown";
+// }
 
 // get current time
 //
@@ -83,7 +69,7 @@ void logMessage(LogOutput outputType, LogLevel level, const std::string &message
     std::string msg;
 
     // Determine the output stream based on the output type
-    if (outputType == LOG_TO_FILE && logLevelSet <= level) {
+    if (outputType == LogOutput::LOG_TO_FILE && logLevelSet <= level) {
         std::ofstream logFile(filename, std::ios::out | std::ios::app);
 
         if (!logFile.is_open() || !logFile.good()) {
@@ -93,16 +79,16 @@ void logMessage(LogOutput outputType, LogLevel level, const std::string &message
         outputStream = &logFile;
 
         switch (level) {
-            case LOG_DEBUG:
+            case LogLevel::LOG_DEBUG:
                 (*outputStream) << getTime() << " | DEBUG: ";
                 break;
-            case LOG_INFO:
+            case LogLevel::LOG_INFO:
                 (*outputStream) << getTime() << " | INFO: ";
                 break;
-            case LOG_WARNING:
+            case LogLevel::LOG_WARNING:
                 (*outputStream) << getTime() << " | WARNING: ";
                 break;
-            case LOG_ERROR:
+            case LogLevel::LOG_ERROR:
                 (*outputStream) << getTime() << " | ERROR: ";
                 break;
             default:
@@ -112,7 +98,7 @@ void logMessage(LogOutput outputType, LogLevel level, const std::string &message
         (*outputStream) << message << std::endl;
     } else {
         if (logLevelSet <= level) {
-            cout << getTime() << levelToString(level) << ": " << message << endl;
+            cout << getTime() << " : " << message << endl;
         }
     }
 } // END logMessage
@@ -125,11 +111,11 @@ void logMessage(LogOutput outputType, LogLevel level, const std::string &message
 //
 void testSimConnect() {
     if (SUCCEEDED(SimConnect_Open(&hSimConnect, "Open and Close", nullptr, 0, nullptr, 0))) {
-        logMessage(logOutputTypeSet, LOG_INFO, "testSimConnect(): Connected to MSFS 2020.");
+        logMessage(logOutputTypeSet, LogLevel::LOG_INFO, "testSimConnect(): Connected to MSFS 2020.");
         HRESULT hr = SimConnect_Close(hSimConnect);
-        logMessage(logOutputTypeSet, LOG_WARNING, "testSimConnect(): Disconnected to MSFS 2020!");
+        logMessage(logOutputTypeSet, LogLevel::LOG_WARNING, "testSimConnect(): Disconnected to MSFS 2020!");
     } else
-        logMessage(logOutputTypeSet, LOG_ERROR, "testSimConnect(): Failed to connect to MSFS 2020");
+        logMessage(logOutputTypeSet, LogLevel::LOG_ERROR, "testSimConnect(): Failed to connect to MSFS 2020");
 } // END testSimConnect
 
 
@@ -139,7 +125,7 @@ void testSimConnect() {
 
 // Function to receive data from Arduino
 void receiveData() {
-    logMessage(logOutputTypeSet, LOG_INFO, "receiveData(): Listening to Arduino.");
+    logMessage(logOutputTypeSet, LogLevel::LOG_INFO, "receiveData(): Listening to Arduino.");
 
     try {
         vector<char> byteStream;
@@ -155,17 +141,18 @@ void receiveData() {
                         // Assuming data ends with newline
                         std::string receivedData(byteStream.begin(), byteStream.end() - 1);
                         mtx.lock();
+                        logMessage(logOutputTypeSet, LogLevel::LOG_DEBUG, "receiveData() - Received from serial: " + receivedData);
                         cout << "Received: " << receivedData << endl;
                         mtx.unlock();
                         byteStream.clear();
                     }
                 }
             } else {
-                logMessage(logOutputTypeSet, LOG_ERROR, "receiveData(): Error reading from open serial port.");
+                logMessage(logOutputTypeSet, LogLevel::LOG_ERROR, "receiveData(): Error reading from open serial port.");
             }
         }
     } catch (...) {
-        logMessage(logOutputTypeSet, LOG_ERROR, "receiveData(): Error while trying to read serial port.");
+        logMessage(logOutputTypeSet, LogLevel::LOG_ERROR, "receiveData(): Error while trying to read serial port.");
     }
 }
 
@@ -175,24 +162,33 @@ void sendData(const string &message) {
         mtx.lock();
         DWORD bytesWritten;
         if (!WriteFile(hSerial, message.c_str(), message.length(), &bytesWritten, nullptr)) {
-            logMessage(logOutputTypeSet, LOG_ERROR, "sendData(): Error writing data to open port.");
+            logMessage(logOutputTypeSet, LogLevel::LOG_ERROR, "sendData(): Error writing data to open port.");
         }
         mtx.unlock();
     } catch (...) {
-        logMessage(logOutputTypeSet, LOG_ERROR, "sendData(): Error while trying to send data.");
+        logMessage(logOutputTypeSet, LogLevel::LOG_ERROR, "sendData(): Error while trying to send data.");
     }
 }
 
 // MAIN
 int main() {
 
+    // Get settings from config
+    if (Config config; config.loadConfig("config.txt")) {
+        logLevelSet = config.getLogLevel("log_level", LogLevel::LOG_ERROR);
+        logOutputTypeSet = config.getLogTarget("log_target", LogOutput::LOG_TO_TERMINAL);
+    } else {
+        std::cerr << "ERROR!! Failed to load configuration\n";
+    }
+
+    // simconnect
     testSimConnect();
 
     try {
         hSerial = CreateFile("COM8", GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
 
         if (hSerial == INVALID_HANDLE_VALUE) {
-            logMessage(logOutputTypeSet, LOG_ERROR, "main(): Error opening serial port!");
+            logMessage(logOutputTypeSet, LogLevel::LOG_ERROR, "main(): Error opening serial port!");
             return 0;
         }
 
@@ -200,8 +196,8 @@ int main() {
         dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
 
         if (!GetCommState(hSerial, &dcbSerialParams)) {
-            logMessage(logOutputTypeSet, LOG_ERROR, "main(): Error getting the state of the serial port!");
-            return 1;
+            logMessage(logOutputTypeSet, LogLevel::LOG_ERROR, "main(): Error getting the state of the serial port!");
+            return 0;
         }
 
         dcbSerialParams.BaudRate = CBR_115200;
@@ -210,12 +206,13 @@ int main() {
         dcbSerialParams.Parity = NOPARITY;
 
         if (!SetCommState(hSerial, &dcbSerialParams)) {
-            logMessage(logOutputTypeSet, LOG_ERROR, "main(): Error setting the state of the port!");
-            return 1;
+            logMessage(logOutputTypeSet, LogLevel::LOG_ERROR, "main(): Error setting the state of the port!");
+            return 0;
         }
 
         // Start the receive thread
         thread receiverThread(receiveData);
+        receiverThread.join();
 
         /*
         // Send data to Arduino every 2 seconds
@@ -229,14 +226,13 @@ int main() {
         }
         */
 
-        receiverThread.join();
-
         // Close the serial port when done
         CloseHandle(hSerial);
     } catch (const exception &e) {
-        logMessage(logOutputTypeSet, LOG_ERROR, "main(): Exception thrown: ");
+        logMessage(logOutputTypeSet, LogLevel::LOG_ERROR, "main(): Exception thrown while closing handle.");
         cerr << "Exception: " << e.what() << endl;
+        return 0;
     }
 
-    return 0;
+    return 1;
 } //END main
