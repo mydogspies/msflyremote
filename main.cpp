@@ -11,18 +11,18 @@
 #include <string>
 #include <thread>
 #include <fstream>
-#include <math.h>
-#include <mutex>  // Include for mutex
+#include <cmath>
+#include <mutex>
+#include <array>
 
 using namespace std;
-#include<stdlib.h>
+#include <cstdlib>
 #include "SimConnect.h"
 
-// MSFS 2020 setup
-HANDLE  hSimConnect = NULL;
-// Threading setup
+HANDLE  hSimConnect = nullptr;
+HANDLE hSerial = nullptr;
+
 std::mutex mtx;
-HANDLE hSerial;
 
 //
 // LOGGER
@@ -31,8 +31,21 @@ HANDLE hSerial;
 enum LogLevel {
     LOG_INFO,
     LOG_WARNING,
-    LOG_ERROR
+    LOG_ERROR,
+    LOG_LEVELS
 };
+
+constexpr std::array<const char*, LOG_LEVELS> levelStrings = {{
+    "LOG_INFO",
+    "LOG_WARNING",
+    "LOG_ERROR"
+    }};
+const char* levelToString(LogLevel level) {
+    if (level >= 0 && level < LOG_LEVELS) {
+        return levelStrings[level];
+    }
+    return "Unknown";
+}
 
 enum LogOutput {
     LOG_TO_TERMINAL,
@@ -47,24 +60,18 @@ void logMessage(LogOutput outputType, LogLevel level, const std::string& message
     // Determine the output stream based on the output type
     if (outputType == LOG_TO_FILE) {
         std::ofstream logFile(filename, std::ios::out | std::ios::app);
-        if (!logFile.is_open()) {
+        if (!logFile.is_open() || !logFile.good()) {
             std::cerr << "Failed to open log file: " << filename << std::endl;
             return;
         }
         outputStream = &logFile;
-        logFile.close();
-    } else {
-        outputStream = &std::cout;
-    }
 
-    // Log the message to the selected output stream
-    if (outputStream) {
         switch (level) {
             case LOG_INFO:
-                (*outputStream) << "LOG_INFO: ";
+                (*outputStream) << "INFO: ";
             break;
             case LOG_WARNING:
-                (*outputStream) << "LOG_WARNING: ";
+                (*outputStream) << "WARNING: ";
             break;
             case LOG_ERROR:
                 (*outputStream) << "ERROR: ";
@@ -74,6 +81,9 @@ void logMessage(LogOutput outputType, LogLevel level, const std::string& message
             break;
         }
         (*outputStream) << message << std::endl;
+
+    } else {
+        cout << levelToString(level) << ": " << message << endl;
     }
 }
 
