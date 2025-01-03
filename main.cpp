@@ -14,9 +14,9 @@
 #include <cmath>
 #include <mutex>
 #include <array>
+#include <sstream>
 
 using namespace std;
-#include <cstdlib>
 #include "SimConnect.h"
 
 HANDLE  hSimConnect = nullptr;
@@ -25,8 +25,10 @@ HANDLE hSerial = nullptr;
 std::mutex mtx;
 
 //
-// LOGGER
+// LOGGER DEFINITIONS
 //
+
+
 
 enum LogLevel {
     LOG_INFO,
@@ -52,10 +54,37 @@ enum LogOutput {
     LOG_TO_FILE
 };
 
+// this sets globally if logging writes to terminal or file
+LogOutput logOutputTypeSet = LOG_TO_TERMINAL;
+
+//
+// FUNCTIONS
+//
+
+std::string captureCerrBuffer(std::streambuf* originalCerrBuffer) {
+
+    std::ostringstream cerrStream;
+    std::cerr.rdbuf(cerrStream.rdbuf());
+    // std::cerr << "This is an error message!" << std::endl;
+    std::cerr.rdbuf(originalCerrBuffer);
+    return cerrStream.str();
+}
+
+// get current time
+//
+char* getTime() {
+    time_t rawtime = time(0);
+    struct tm * timeinfo = localtime(&rawtime);
+    char* date_time = asctime(timeinfo);
+    return date_time;
+} // END getTime
+
 // Logging function
 // with option to log to terminal or to file
+//
 void logMessage(LogOutput outputType, LogLevel level, const std::string& message, const std::string& filename = "") {
     std::ostream* outputStream = nullptr;
+    std::string msg;
 
     // Determine the output stream based on the output type
     if (outputType == LOG_TO_FILE) {
@@ -68,24 +97,24 @@ void logMessage(LogOutput outputType, LogLevel level, const std::string& message
 
         switch (level) {
             case LOG_INFO:
-                (*outputStream) << "INFO: ";
+                (*outputStream) << getTime() << " | INFO: ";
             break;
             case LOG_WARNING:
-                (*outputStream) << "WARNING: ";
+                (*outputStream) << getTime() << " | WARNING: ";
             break;
             case LOG_ERROR:
-                (*outputStream) << "ERROR: ";
+                (*outputStream) << getTime() << " | ERROR: ";
             break;
             default:
-                (*outputStream) << "UNKNOWN: ";
-            break;
+                (*outputStream) << getTime() << " | UNKNOWN: ";
         }
         (*outputStream) << message << std::endl;
 
     } else {
-        cout << levelToString(level) << ": " << message << endl;
+
+        cout << getTime() << levelToString(level) << ": " << message << endl;
     }
-}
+} // END logMessage
 
 //
 // MSFS 2020 functions
@@ -99,12 +128,12 @@ void testSimConnect() {
 
     if (SUCCEEDED(SimConnect_Open(&hSimConnect, "Open and Close", nullptr, 0, 0, 0))) {
 
-        printf("\nConnected to Flight Simulator!\n");
+        logMessage(logOutputTypeSet, LOG_INFO, "testSimConnect(): Connected to MSFS 2020.");
         hr = SimConnect_Close(hSimConnect);
         printf("\nDisconnected from Flight Simulator\n");
 
     } else
-        printf("\nFailed to connect to Flight Simulator\n");
+        logMessage(logOutputTypeSet, LOG_ERROR, "testSimConnect(): Failed to connect to MSFS 2020");
 } // END testSimConnnect
 
 
@@ -115,7 +144,7 @@ void testSimConnect() {
 // Function to receive data from Arduino
 void receiveData() {
 
-    cout << "Receiving data from Arduino" << endl;
+    logMessage(logOutputTypeSet, LOG_INFO, "receiveData(): Listening to Arduino.");
 
     try {
         vector<char> byteStream;
@@ -136,12 +165,13 @@ void receiveData() {
                     }
                 }
             } else {
-                cerr << "Error reading from serial port." << endl;
+                logMessage(logOutputTypeSet, LOG_ERROR, "receiveData(): Error reading from open serial port.");
             }
         }
 
     } catch (...) {
-        cerr << "Error reading from serial port. Error code: " << GetLastError() << endl;
+
+        logMessage(logOutputTypeSet, LOG_ERROR, "receiveData(): Error while trying to read serial port.");
     }
 
 
@@ -153,11 +183,11 @@ void sendData(const string& message) {
         mtx.lock();
         DWORD bytesWritten;
         if (!WriteFile(hSerial, message.c_str(), message.length(), &bytesWritten, NULL)) {
-            cerr << "Error writing to serial port." << endl;
+            logMessage(logOutputTypeSet, LOG_ERROR, "sendData(): Error writing data to open port.");
         }
         mtx.unlock();
     } catch (...) {
-        cerr << "An error occurred while sending data." << endl;
+        logMessage(logOutputTypeSet, LOG_ERROR, "sendData(): Error while trying to send data.");
     }
 }
 
@@ -169,39 +199,24 @@ int testArduinoConnect() {
 
 } // END testArduincConnect
 
-void testLogging() {
-
-    // Log to terminal
-    logMessage(LOG_TO_TERMINAL, LOG_INFO, "This is an informational message to the terminal.");
-    logMessage(LOG_TO_TERMINAL, LOG_WARNING, "This is a warning message to the terminal.");
-    logMessage(LOG_TO_TERMINAL, LOG_ERROR, "This is an error message to the terminal.");
-
-    // Log to file
-    logMessage(LOG_TO_FILE, LOG_INFO, "This is an informational message to the file.", "log.txt");
-    logMessage(LOG_TO_FILE, LOG_WARNING, "This is a warning message to the file.", "log.txt");
-    logMessage(LOG_TO_FILE, LOG_ERROR, "This is an error message to the file.", "log.txt");
-
-} // END testLogging
-
 // MAIN
 int main() {
 
-    testLogging();
     testSimConnect();
 
     try {
         hSerial = CreateFile("COM8", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 
         if (hSerial == INVALID_HANDLE_VALUE) {
-            cerr << "Error opening serial port! Error code: " << GetLastError() << endl;
-            return 1;
+            logMessage(logOutputTypeSet, LOG_ERROR, "main(): Error opening serial port!");
+            return 0;
         }
 
         DCB dcbSerialParams = { 0 };
         dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
 
         if (!GetCommState(hSerial, &dcbSerialParams)) {
-            cerr << "Error getting serial port state!" << endl;
+            logMessage(logOutputTypeSet, LOG_ERROR, "main(): Error getting the state of the serial port!");
             return 1;
         }
 
@@ -211,7 +226,7 @@ int main() {
         dcbSerialParams.Parity = NOPARITY;
 
         if (!SetCommState(hSerial, &dcbSerialParams)) {
-            cerr << "Error setting serial port state!" << endl;
+            logMessage(logOutputTypeSet, LOG_ERROR, "main(): Error setting the state of the port!");
             return 1;
         }
 
@@ -236,6 +251,7 @@ int main() {
         CloseHandle(hSerial);
 
     } catch (const exception &e) {
+        logMessage(logOutputTypeSet, LOG_ERROR, "main(): Exception thrown: ");
         cerr << "Exception: " << e.what() << endl;
     }
 
