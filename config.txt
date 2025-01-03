@@ -1,0 +1,4 @@
+# Set the logging level (ERROR, WARNING, INFO, DEBUG)
+log_level=DEBUG
+# Set log target (FILE, TERMINAL)
+log_target=TERMINAL
